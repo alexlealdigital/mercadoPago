@@ -1,44 +1,62 @@
 from flask import Flask, request, jsonify
 import os
+import smtplib
+from email.message import EmailMessage
 
 app = Flask(__name__)
 
-# Endpoint que recebe as notificações do Mercado Pago
+# Configurações (substitua com seus dados)
+EMAIL_CONFIG = {
+    "from": "seu_email@exemplo.com",
+    "password": os.getenv("EMAIL_PASSWORD"),
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587
+}
+
 @app.route('/webhook', methods=['POST'])
-def webhook():
-    # Verificar o token de autenticação se necessário
-    auth_token = request.headers.get('Authorization')
-    # if auth_token != os.getenv('WEBHOOK_TOKEN'):
-    #     return jsonify({"error": "Unauthorized"}), 401
-    
-    data = request.json
-    
-    # Extrair informações importantes
-    payment_id = data.get('data', {}).get('id')
-    payment_status = data.get('action')  # Ex: 'payment.created', 'payment.updated'
-    payer_email = data.get('data', {}).get('payer', {}).get('email')
-    
-    print(f"Recebido webhook: {payment_status} - Email: {payer_email}")
-    
-    if payment_id and payment_status == 'payment.updated':
-        # Aqui você pode adicionar sua lógica para verificar se o pagamento foi aprovado
-        # e enviar os e-mails com os links de download
-        print(f"Pagamento {payment_id} atualizado. Status: {data.get('data', {}).get('status')}")
-        if data.get('data', {}).get('status') == 'approved':
-            send_download_links(payer_email, payment_id)
-    
-    return jsonify({"status": "received"}), 200
+def handle_webhook():
+    try:
+        data = request.json
+        payment_status = data.get('action')
+        payment_data = data.get('data', {})
+        
+        if payment_status == 'payment.updated' and payment_data.get('status') == 'approved':
+            send_download_links(
+                email=payment_data.get('payer', {}).get('email'),
+                payment_id=payment_data.get('id')
+            )
+            
+        return jsonify({"status": "processed"}), 200
+        
+    except Exception as e:
+        print(f"Erro no webhook: {str(e)}")
+        return jsonify({"error": "internal error"}), 500
 
-def send_download_links(email, payment_id):
-    # Implemente o envio de e-mail aqui
-    print(f"Enviando links de download para: {email} - Pagamento ID: {payment_id}")
-    # Exemplo simplificado:
-    # msg = f"Obrigado por sua compra! Seus links de download: [LINKS AQUI]"
-    # enviar_email(email, "Seus downloads", msg)
-
-@app.route('/')
-def home():
-    return "Webhook do Mercado Pago está rodando!"
+def send_download_links(email: str, payment_id: str):
+    """Envia e-mail com links de download"""
+    if not email:
+        return
+        
+    msg = EmailMessage()
+    msg['Subject'] = "✅ Seu download está pronto!"
+    msg['From'] = EMAIL_CONFIG['from']
+    msg['To'] = email
+    
+    msg.set_content(f"""
+    Obrigado por sua compra! (#{payment_id})
+    
+    📥 Links para download:
+    - Produto 1: https://exemplo.com/download/{payment_id}/produto1
+    - Produto 2: https://exemplo.com/download/{payment_id}/produto2
+    
+    ⏳ Links válidos por 7 dias.
+    """)
+    
+    with smtplib.SMTP(EMAIL_CONFIG['smtp_server'], EMAIL_CONFIG['smtp_port']) as server:
+        server.starttls()
+        server.login(EMAIL_CONFIG['from'], EMAIL_CONFIG['password'])
+        server.send_message(msg)
+    print(f"E-mail enviado para {email}")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
