@@ -1,7 +1,10 @@
 import logging
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent))
+from apimercadopago import gerar_link_pagamento
 logging.basicConfig(level=logging.DEBUG)
 from flask import Flask, render_template, request, redirect, jsonify
-from apimercadopago import gerar_link_pagamento
 from db import salvar_pagamento
 from email_utils import enviar_email
 import os
