@@ -1,4 +1,5 @@
-flask
-python-dotenv
-mercadopago
-psycopg2
+flask==2.3.2
+python-dotenv==1.0.0
+mercadopago==2.0.3
+psycopg2-binary==2.9.9  # Substitui o psycopg2 para instalação mais fácil
+gunicorn==21.2.0        # Necessário para deploy no Render
