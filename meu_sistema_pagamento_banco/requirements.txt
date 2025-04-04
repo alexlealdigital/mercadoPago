@@ -1,8 +1,4 @@
-# Dependências CORE do Mercado Pago
+mercadopago==2.3.0
 flask==2.3.2
 python-dotenv==1.0.0
-mercadopago==2.0.3
 gunicorn==21.2.0
-
-# Dependências adicionais (se realmente necessário)
-pydantic>=2.10.1,<3.0.0  # Versão flexível
