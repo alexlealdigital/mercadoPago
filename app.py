@@ -67,6 +67,10 @@ def home():
 
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
+    expected_token = f"Bearer {os.getenv('WEBHOOK_TOKEN')}"
+    if request.headers.get('Authorization') != expected_token:
+        return jsonify({"error": "Unauthorized"}), 401
+    # ... resto do código ...
     try:
         # Verifica autenticação
         if request.headers.get('Authorization') != f"Bearer {os.getenv('WEBHOOK_TOKEN')}":
