@@ -47,29 +47,36 @@ def send_download_links(email: str, payment_id: str):
 def home():
     return jsonify({"status": "online", "service": "Mercado Pago Webhook"})
 
-@app.route('/webhook', methods=['POST'])
+@app.route('/webhook', methods=['POST', 'GET'])
 def handle_webhook():
     try:
-        data = request.json
-        
-        # Verifica se é uma notificação de pagamento
-        if data.get('type') == 'payment' and data.get('action') == 'payment.updated':
+        # Verifica o formato dos dados (query params ou JSON)
+        if request.method == 'GET':
+            payment_id = request.args.get('data.id')
+            notification_type = request.args.get('type')
+        else:
+            data = request.get_json()
             payment_id = data.get('data', {}).get('id')
-            
-            # Aqui você deve CONSULTAR o pagamento na API do Mercado Pago
-            sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
-            payment_info = sdk.payment().get(payment_id)
-            
-            # Processa apenas pagamentos aprovados
-            if payment_info["response"]["status"] == "approved":
-                payer_email = payment_info["response"]["payer"]["email"]
-                send_download_links(payer_email, payment_id)
+            notification_type = data.get('type')
+
+        if not payment_id or notification_type != 'payment':
+            return jsonify({"error": "Invalid request"}), 400
+
+        # Consulta completa na API do Mercado Pago
+        sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
+        payment_info = sdk.payment().get(payment_id)
         
+        if payment_info['response']['status'] == 'approved':
+            send_download_links(
+                email=payment_info['response']['payer']['email'],
+                payment_id=payment_id
+            )
+
         return jsonify({"status": "processed"}), 200
-        
+
     except Exception as e:
-        print(f"Erro no webhook: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        app.logger.error(f"Erro: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/healthcheck', methods=['GET'])
 def health_check():
