@@ -4,6 +4,8 @@ import smtplib
 from email.message import EmailMessage
 import logging
 import mercadopago
+from dotenv import load_dotenv
+load_dotenv('/etc/secrets/.env')  # Caminho padrão no Render
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
