@@ -43,6 +43,10 @@ def send_download_links(email: str, payment_id: str):
     except Exception as e:
         print(f"Falha ao enviar e-mail: {str(e)}")
 
+@app.route('/')
+def home():
+    return jsonify({"status": "online", "service": "Mercado Pago Webhook"})
+
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     try:
@@ -74,4 +78,5 @@ def health_check():
     return jsonify({"status": "ok"}), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get('PORT', 10000))  # Use 10000 para compatibilidade com Render
+    app.run(host='0.0.0.0', port=port)
