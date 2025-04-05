@@ -63,42 +63,43 @@ def home():
         "version": "1.0"
     })
 
-@app.route('/webhook', methods=['GET', 'POST'])
+@app.route('/webhook', methods=['POST'])
 def handle_webhook():
     try:
-        # Support both GET (query params) and POST (JSON)
-        if request.method == 'GET':
-            payment_id = request.args.get('data.id')
-            if not payment_id:
-                logger.warning("Missing payment ID in GET request")
-                return jsonify({"error": "Missing payment ID"}), 400
-        else:
-            data = request.get_json()
-            payment_id = data.get('data', {}).get('id')
-            if not payment_id:
-                logger.warning("Invalid JSON payload")
-                return jsonify({"error": "Invalid JSON payload"}), 400
+        # Verifica autenticação
+        if request.headers.get('Authorization') != f"Bearer {os.getenv('WEBHOOK_TOKEN')}":
+            return jsonify({"error": "Unauthorized"}), 401
 
-        # Initialize MP SDK
+        # Processa dados do webhook
+        data = request.get_json()
+        payment_id = data.get('data', {}).get('id')
+        if not payment_id:
+            return jsonify({"error": "Payment ID missing"}), 400
+
+        # Consulta API do Mercado Pago
         sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
-        
-        # Get payment details from MP API
         payment_info = sdk.payment().get(payment_id)
-        if not payment_info or 'response' not in payment_info:
-            logger.error("Failed to get payment info from MP API")
-            return jsonify({"error": "Payment not found"}), 404
-            
-        if payment_info['response']['status'] == 'approved':
-            email = payment_info['response']['payer']['email']
-            logger.info(f"Processing approved payment {payment_id} for {email}")
-            send_download_links(email, payment_id)
         
-        return jsonify({"status": "processed"}), 200
+        # Verificação robusta da resposta
+        if not payment_info or 'response' not in payment_info:
+            app.logger.error("Resposta inválida da API MP: %s", payment_info)
+            return jsonify({"error": "Invalid MP API response"}), 502
+            
+        payment_data = payment_info.get('response', {})
+        
+        if payment_data.get('status') == 'approved':
+            email = payment_data.get('payer', {}).get('email')
+            if email:
+                send_download_links(email, payment_id)
+                return jsonify({"status": "processed"}), 200
+            return jsonify({"error": "Payer email missing"}), 400
+            
+        return jsonify({"status": "payment_not_approved"}), 200
 
     except Exception as e:
-        logger.error(f"Critical error: {str(e)}", exc_info=True)
+        app.logger.error("Erro crítico: %s", str(e), exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
-
+        
 @app.route('/healthcheck', methods=['GET'])
 def health_check():
     """Health check endpoint"""
