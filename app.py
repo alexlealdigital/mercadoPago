@@ -50,27 +50,26 @@ def home():
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     try:
-        if not request.is_json:
-            return jsonify({"error": "Content-Type must be application/json"}), 400
-            
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "Invalid JSON data"}), 400
+        data = request.json
         
-        payment_status = data.get('action')
-        payment_data = data.get('data', {})
-        
-        if payment_status == 'payment.updated' and payment_data.get('status') == 'approved':
-            send_download_links(
-                email=payment_data.get('payer', {}).get('email'),
-                payment_id=payment_data.get('id')
-            )
+        # Verifica se é uma notificação de pagamento
+        if data.get('type') == 'payment' and data.get('action') == 'payment.updated':
+            payment_id = data.get('data', {}).get('id')
             
+            # Aqui você deve CONSULTAR o pagamento na API do Mercado Pago
+            sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
+            payment_info = sdk.payment().get(payment_id)
+            
+            # Processa apenas pagamentos aprovados
+            if payment_info["response"]["status"] == "approved":
+                payer_email = payment_info["response"]["payer"]["email"]
+                send_download_links(payer_email, payment_id)
+        
         return jsonify({"status": "processed"}), 200
         
     except Exception as e:
         print(f"Erro no webhook: {str(e)}")
-        return jsonify({"error": "internal server error"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/healthcheck', methods=['GET'])
 def health_check():
