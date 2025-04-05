@@ -2,21 +2,33 @@ from flask import Flask, request, jsonify
 import os
 import smtplib
 from email.message import EmailMessage
+import logging
+import mercadopago
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Configurações de e-mail (pegando do ambiente)
+# Timeout configuration
+@app.before_request
+def handle_timeout():
+    request.environ['werkzeug.server.shutdown'] = lambda: None
+    request.environ['werkzeug.socket'] = None
+
+# Email configuration from environment variables
 EMAIL_CONFIG = {
-    "from": os.getenv("EMAIL_SENDER"),
-    "password": os.getenv("EMAIL_PASSWORD"),
-    "smtp_server": os.getenv("SMTP_SERVER"),
-    "smtp_port": int(os.getenv("SMTP_PORT", 587))  # Default para 587 se não definido
+    "from": os.getenv("EMAIL_SENDER", "lab.leal.jornal@zohomail.com"),
+    "password": os.getenv("EMAIL_PASSWORD", "Chat2025$"),
+    "smtp_server": os.getenv("SMTP_SERVER", "smtp.zoho.com"),
+    "smtp_port": int(os.getenv("SMTP_PORT", 587))
 }
 
 def send_download_links(email: str, payment_id: str):
-    """Envia e-mail com links de download"""
+    """Send email with download links"""
     if not email:
-        print("Erro: E-mail do comprador não disponível")
+        logger.error("No email provided")
         return
         
     msg = EmailMessage()
@@ -39,50 +51,59 @@ def send_download_links(email: str, payment_id: str):
             server.starttls()
             server.login(EMAIL_CONFIG['from'], EMAIL_CONFIG['password'])
             server.send_message(msg)
-        print(f"E-mail enviado para {email}")
+        logger.info(f"Email sent to {email}")
     except Exception as e:
-        print(f"Falha ao enviar e-mail: {str(e)}")
+        logger.error(f"Failed to send email: {str(e)}")
 
 @app.route('/')
 def home():
-    return jsonify({"status": "online", "service": "Mercado Pago Webhook"})
+    return jsonify({
+        "service": "Mercado Pago Webhook",
+        "status": "online",
+        "version": "1.0"
+    })
 
-@app.route('/webhook', methods=['POST', 'GET'])
+@app.route('/webhook', methods=['GET', 'POST'])
 def handle_webhook():
     try:
-        # Verifica o formato dos dados (query params ou JSON)
+        # Support both GET (query params) and POST (JSON)
         if request.method == 'GET':
             payment_id = request.args.get('data.id')
-            notification_type = request.args.get('type')
+            if not payment_id:
+                logger.warning("Missing payment ID in GET request")
+                return jsonify({"error": "Missing payment ID"}), 400
         else:
             data = request.get_json()
             payment_id = data.get('data', {}).get('id')
-            notification_type = data.get('type')
+            if not payment_id:
+                logger.warning("Invalid JSON payload")
+                return jsonify({"error": "Invalid JSON payload"}), 400
 
-        if not payment_id or notification_type != 'payment':
-            return jsonify({"error": "Invalid request"}), 400
-
-        # Consulta completa na API do Mercado Pago
+        # Initialize MP SDK
         sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
-        payment_info = sdk.payment().get(payment_id)
         
+        # Get payment details from MP API
+        payment_info = sdk.payment().get(payment_id)
+        if not payment_info or 'response' not in payment_info:
+            logger.error("Failed to get payment info from MP API")
+            return jsonify({"error": "Payment not found"}), 404
+            
         if payment_info['response']['status'] == 'approved':
-            send_download_links(
-                email=payment_info['response']['payer']['email'],
-                payment_id=payment_id
-            )
-
+            email = payment_info['response']['payer']['email']
+            logger.info(f"Processing approved payment {payment_id} for {email}")
+            send_download_links(email, payment_id)
+        
         return jsonify({"status": "processed"}), 200
 
     except Exception as e:
-        app.logger.error(f"Erro: {str(e)}")
+        logger.error(f"Critical error: {str(e)}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/healthcheck', methods=['GET'])
 def health_check():
-    """Endpoint para verificar se o servidor está online"""
+    """Health check endpoint"""
     return jsonify({"status": "ok"}), 200
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))  # Use 10000 para compatibilidade com Render
+    port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
