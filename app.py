@@ -65,51 +65,31 @@ def home():
         "version": "1.0"
     })
 
+# Exemplo de modificação para melhorar a segurança
 @app.route('/webhook', methods=['POST'])
-def handle_webhook():    
-    print("\n=== Headers Recebidos ===")
-    print(request.headers)  # Verifique se o Authorization está chegando
-    
+def handle_webhook():
+    # Verificação do token (única)
     auth_header = request.headers.get('Authorization')
-    expected = f"Bearer {os.getenv('WEBHOOK_TOKEN')}"
-    
-    if auth_header != expected:
-        print(f"Falha na autenticação. Recebido: '{auth_header}' | Esperado: '{expected}'")
+    if auth_header != f"Bearer {os.getenv('WEBHOOK_TOKEN')}":
+        logger.error(f"Token inválido. Recebido: {auth_header}")
         return jsonify({"error": "Unauthorized"}), 401
+
+    # Validação do payload
+    data = request.get_json()
+    if not data.get('data', {}).get('id'):
+        return jsonify({"error": "Payment ID missing"}), 400
+
+    # Consulta API MP (com timeout)
+    sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
     try:
-        # Verifica autenticação
-        if request.headers.get('Authorization') != f"Bearer {os.getenv('WEBHOOK_TOKEN')}":
-            return jsonify({"error": "Unauthorized"}), 401
-
-        # Processa dados do webhook
-        data = request.get_json()
-        payment_id = data.get('data', {}).get('id')
-        if not payment_id:
-            return jsonify({"error": "Payment ID missing"}), 400
-
-        # Consulta API do Mercado Pago
-        sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
-        payment_info = sdk.payment().get(payment_id)
-        
-        # Verificação robusta da resposta
-        if not payment_info or 'response' not in payment_info:
-            app.logger.error("Resposta inválida da API MP: %s", payment_info)
-            return jsonify({"error": "Invalid MP API response"}), 502
-            
-        payment_data = payment_info.get('response', {})
-        
-        if payment_data.get('status') == 'approved':
-            email = payment_data.get('payer', {}).get('email')
-            if email:
-                send_download_links(email, payment_id)
-                return jsonify({"status": "processed"}), 200
-            return jsonify({"error": "Payer email missing"}), 400
-            
-        return jsonify({"status": "payment_not_approved"}), 200
-
+        payment_info = sdk.payment().get(data['data']['id'], timeout=10)
+        if payment_info['response']['status'] == 'approved':
+            send_download_links(payment_info['response']['payer']['email'], data['data']['id'])
+            return jsonify({"status": "success"}), 200
     except Exception as e:
-        app.logger.error("Erro crítico: %s", str(e), exc_info=True)
-        return jsonify({"error": "Internal server error"}), 500
+        logger.error(f"Erro na API MP: {str(e)}")
+        return jsonify({"error": "MP API error"}), 500
+       
         
 @app.route('/healthcheck', methods=['GET'])
 def health_check():
