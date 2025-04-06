@@ -68,11 +68,17 @@ def home():
 # Exemplo de modificação para melhorar a segurança
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
-    # Verificação do token (única)
+    app.logger.info("Headers recebidos: %s", request.headers)
+    app.logger.info("Payload recebido: %s", request.json)
+    
     auth_header = request.headers.get('Authorization')
-    if auth_header != f"Bearer {os.getenv('WEBHOOK_TOKEN')}":
-        logger.error(f"Token inválido. Recebido: {auth_header}")
+    expected = f"Bearer {os.getenv('WEBHOOK_TOKEN')}"
+    
+    if not auth_header or auth_header != expected:
+        app.logger.error("Token inválido. Recebido: %s | Esperado: %s", auth_header, expected)
         return jsonify({"error": "Unauthorized"}), 401
+    
+    # Resto do seu código...
 
     # Validação do payload
     data = request.get_json()
