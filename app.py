@@ -65,9 +65,8 @@ def home():
         "version": "1.0"
     })
 
-
-def handle_webhook():
-    @app.route('/webhook', methods=['POST'])
+@app.route('/webhook', methods=['POST'])
+def handle_webhook():    
     print("\n=== Headers Recebidos ===")
     print(request.headers)  # Verifique se o Authorization está chegando
     
