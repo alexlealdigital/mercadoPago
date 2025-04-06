@@ -65,12 +65,18 @@ def home():
         "version": "1.0"
     })
 
-@app.route('/webhook', methods=['POST'])
+
 def handle_webhook():
-    expected_token = f"Bearer {os.getenv('WEBHOOK_TOKEN')}"
-    if request.headers.get('Authorization') != expected_token:
+    @app.route('/webhook', methods=['POST'])
+    print("\n=== Headers Recebidos ===")
+    print(request.headers)  # Verifique se o Authorization está chegando
+    
+    auth_header = request.headers.get('Authorization')
+    expected = f"Bearer {os.getenv('WEBHOOK_TOKEN')}"
+    
+    if auth_header != expected:
+        print(f"Falha na autenticação. Recebido: '{auth_header}' | Esperado: '{expected}'")
         return jsonify({"error": "Unauthorized"}), 401
-    # ... resto do código ...
     try:
         # Verifica autenticação
         if request.headers.get('Authorization') != f"Bearer {os.getenv('WEBHOOK_TOKEN')}":
