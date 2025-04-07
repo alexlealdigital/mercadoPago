@@ -9,7 +9,9 @@ import hashlib
 from functools import wraps
 from dotenv import load_dotenv
 
-load_dotenv('/etc/secrets/.env')  # Caminho padrão no Render
+# Carrega variáveis de ambiente - ATENÇÃO AO CAMINHO
+env_path = '/etc/secrets/.env' if os.path.exists('/etc/secrets/.env') else '.env'
+load_dotenv(env_path)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,113 +19,59 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Configurações do Mercado Pago
-MP_WEBHOOK_TOKEN = os.getenv("MP_WEBHOOK_TOKEN")  # Token específico para webhooks
-MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")    # Access token para API
+# Configurações MP (OBRIGATÓRIAS no Render.com)
+MP_WEBHOOK_TOKEN = os.environ['MP_WEBHOOK_TOKEN']  # Isso vai falhar se não estiver configurado
+MP_ACCESS_TOKEN = os.environ['MP_ACCESS_TOKEN']
 
-# Email configuration from environment variables
-EMAIL_CONFIG = {
-    "from": os.getenv("EMAIL_SENDER", "lab.leal.jornal@zohomail.com"),
-    "password": os.getenv("EMAIL_PASSWORD", "Chat2025$"),
-    "smtp_server": os.getenv("SMTP_SERVER", "smtp.zoho.com"),
-    "smtp_port": int(os.getenv("SMTP_PORT", 587))
-}
+# ... (mantenha suas configurações de email existentes) ...
 
 def verify_mp_signature(request):
-    """Valida a assinatura no formato do Mercado Pago (ts=...,v1=...)"""
-    signature_header = request.headers.get("X-Signature", "")
-    if not signature_header or not MP_WEBHOOK_TOKEN:
-        return False
-
+    """Validação CORRETA para o formato atual do Mercado Pago"""
     try:
-        # Extrai a assinatura v1 do header (formato: "ts=123,v1=hash")
-        parts = dict(p.split("=") for p in signature_header.split(","))
-        received_signature = parts.get("v1", "")
-    except Exception:
-        return False
-
-    # Calcula o hash esperado
-    expected_signature = hmac.new(
-        MP_WEBHOOK_TOKEN.encode(),
-        request.data,
-        hashlib.sha256
-    ).hexdigest()
-
-    return hmac.compare_digest(received_signature, expected_signature)
-
-def mp_webhook_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not verify_mp_signature(request):
-            logger.error(f"Assinatura inválida. Recebido: {request.headers.get('X-Signature')} | Esperado: Bearer {MP_WEBHOOK_TOKEN}")
-            return jsonify({"error": "Unauthorized"}), 401
-        return f(*args, **kwargs)
-    return decorated
-
-def send_download_links(email: str, payment_id: str):
-    """Send email with download links"""
-    if not email:
-        logger.error("No email provided")
-        return
+        signature_header = request.headers.get("X-Signature")
+        if not signature_header:
+            logger.error("Header X-Signature ausente")
+            return False
+            
+        # Extrai a parte v1 da assinatura (formato "ts=...,v1=...")
+        signature_parts = dict(p.split("=") for p in signature_header.split(","))
+        received_signature = signature_parts.get("v1", "")
         
-    msg = EmailMessage()
-    msg['Subject'] = "✅ Seu download está pronto!"
-    msg['From'] = EMAIL_CONFIG['from']
-    msg['To'] = email
-    
-    msg.set_content(f"""
-    Obrigado por sua compra! (#{payment_id})
-    
-    📥 Links para download:
-    - Produto 1: https://exemplo.com/download/{payment_id}/produto1
-    - Produto 2: https://exemplo.com/download/{payment_id}/produto2
-    
-    ⏳ Links válidos por 7 dias.
-    """)
-    
-    try:
-        with smtplib.SMTP(EMAIL_CONFIG['smtp_server'], EMAIL_CONFIG['smtp_port']) as server:
-            server.starttls()
-            server.login(EMAIL_CONFIG['from'], EMAIL_CONFIG['password'])
-            server.send_message(msg)
-        logger.info(f"Email sent to {email}")
+        # Gera a assinatura esperada
+        generated_signature = hmac.new(
+            MP_WEBHOOK_TOKEN.encode('utf-8'),
+            request.data,
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Comparação segura
+        return hmac.compare_digest(received_signature, generated_signature)
+        
     except Exception as e:
-        logger.error(f"Failed to send email: {str(e)}")
-
-@app.route('/')
-def home():
-    return jsonify({
-        "service": "Mercado Pago Webhook",
-        "status": "online",
-        "version": "1.0"
-    })
+        logger.error(f"Erro na verificação: {str(e)}")
+        return False
 
 @app.route('/webhook', methods=['POST'])
-@mp_webhook_required
 def handle_webhook():
+    # 1. Verificação da assinatura
+    if not verify_mp_signature(request):
+        logger.error(f"Token config: {MP_WEBHOOK_TOKEN[:2]}...{MP_WEBHOOK_TOKEN[-2:]}")
+        return jsonify({"error": "Assinatura inválida"}), 401
+    
+    # 2. Processamento do payload
     try:
-        logger.info("Headers recebidos: %s", request.headers)
-        logger.info("Payload recebido: %s", request.json)
+        data = request.json
+        logger.info(f"Payload válido recebido: {data}")
         
-        # Validação do payload
-        data = request.get_json()
-        if not data.get('data', {}).get('id'):
-            return jsonify({"error": "Payment ID missing"}), 400
-
-        # Consulta API MP (com timeout)
-        sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
-        payment_info = sdk.payment().get(data['data']['id'], timeout=10)
+        # ... (seu código existente de processamento) ...
         
-        if payment_info['response']['status'] == 'approved':
-            email = payment_info['response']['payer']['email']
-            send_download_links(email, data['data']['id'])
-            return jsonify({"status": "success"}), 200
+        return jsonify({"status": "success"}), 200
         
-        return jsonify({"status": "payment_not_approved"}), 200
-
     except Exception as e:
-        logger.error(f"Erro no processamento do webhook: {str(e)}")
-        return jsonify({"error": "Internal server error"}), 500
+        logger.error(f"Erro no processamento: {str(e)}")
+        return jsonify({"error": "Erro interno"}), 500
+
+# ... (mantenha o resto do seu código) ...
        
 @app.route('/healthcheck', methods=['GET'])
 def health_check():
