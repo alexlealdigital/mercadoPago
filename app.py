@@ -9,6 +9,19 @@ import hashlib
 from functools import wraps
 from dotenv import load_dotenv
 
+# Verificação explícita das variáveis
+REQUIRED_ENV_VARS = ['MP_WEBHOOK_TOKEN', 'MP_ACCESS_TOKEN']
+missing_vars = [var for var in REQUIRED_ENV_VARS if var not in os.environ]
+
+if missing_vars:
+    raise RuntimeError(
+        f"Variáveis obrigatórias faltando no ambiente: {missing_vars}\n"
+        "Configure no Render.com > Environment Variables"
+    )
+
+MP_WEBHOOK_TOKEN = os.environ['MP_WEBHOOK_TOKEN']
+MP_ACCESS_TOKEN = os.environ['MP_ACCESS_TOKEN']
+
 # Carrega variáveis de ambiente - ATENÇÃO AO CAMINHO
 env_path = '/etc/secrets/.env' if os.path.exists('/etc/secrets/.env') else '.env'
 load_dotenv(env_path)
@@ -50,6 +63,13 @@ def verify_mp_signature(request):
     except Exception as e:
         logger.error(f"Erro na verificação: {str(e)}")
         return False
+
+@app.route('/check-token')
+def check_token():
+    return jsonify({
+        "webhook_token_exists": bool(os.getenv('MP_WEBHOOK_TOKEN')),
+        "access_token_exists": bool(os.getenv('MP_ACCESS_TOKEN'))
+    })
 
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
