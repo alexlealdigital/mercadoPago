@@ -9,32 +9,27 @@ import hashlib
 from functools import wraps
 from dotenv import load_dotenv
 
-# Verificação explícita das variáveis
-REQUIRED_ENV_VARS = ['MP_WEBHOOK_TOKEN', 'MP_ACCESS_TOKEN']
-missing_vars = [var for var in REQUIRED_ENV_VARS if var not in os.environ]
+# Caminho padrão do Render para Secret Files
+SECRETS_DIR = '/etc/secrets/'
 
-if missing_vars:
+def load_secret(filename):
+    try:
+        with open(os.path.join(SECRETS_DIR, filename), 'r') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+
+# Carrega as variáveis
+MP_WEBHOOK_TOKEN = load_secret('MP_WEBHOOK_TOKEN') or os.getenv('MP_WEBHOOK_TOKEN')
+MP_ACCESS_TOKEN = load_secret('MP_ACCESS_TOKEN') or os.getenv('MP_ACCESS_TOKEN')
+
+# Verificação
+if not MP_WEBHOOK_TOKEN or not MP_ACCESS_TOKEN:
     raise RuntimeError(
-        f"Variáveis obrigatórias faltando no ambiente: {missing_vars}\n"
-        "Configure no Render.com > Environment Variables"
+        "Tokens MP não configurados! "
+        "Adicione MP_WEBHOOK_TOKEN e MP_ACCESS_TOKEN "
+        "como Environment Variables OU Secret Files no Render.com"
     )
-
-MP_WEBHOOK_TOKEN = os.environ['MP_WEBHOOK_TOKEN']
-MP_ACCESS_TOKEN = os.environ['MP_ACCESS_TOKEN']
-
-# Carrega variáveis de ambiente - ATENÇÃO AO CAMINHO
-env_path = '/etc/secrets/.env' if os.path.exists('/etc/secrets/.env') else '.env'
-load_dotenv(env_path)
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-app = Flask(__name__)
-
-# Configurações MP (OBRIGATÓRIAS no Render.com)
-MP_WEBHOOK_TOKEN = os.environ['MP_WEBHOOK_TOKEN']  # Isso vai falhar se não estiver configurado
-MP_ACCESS_TOKEN = os.environ['MP_ACCESS_TOKEN']
 
 # ... (mantenha suas configurações de email existentes) ...
 
@@ -64,11 +59,12 @@ def verify_mp_signature(request):
         logger.error(f"Erro na verificação: {str(e)}")
         return False
 
-@app.route('/check-token')
-def check_token():
+@app.route('/check-config')
+def check_config():
     return jsonify({
-        "webhook_token_exists": bool(os.getenv('MP_WEBHOOK_TOKEN')),
-        "access_token_exists": bool(os.getenv('MP_ACCESS_TOKEN'))
+        'webhook_token_loaded': bool(MP_WEBHOOK_TOKEN),
+        'access_token_loaded': bool(MP_ACCESS_TOKEN),
+        'loading_method': 'Secret Files' if os.path.exists(SECRETS_DIR) else 'Environment Variables'
     })
 
 @app.route('/webhook', methods=['POST'])
